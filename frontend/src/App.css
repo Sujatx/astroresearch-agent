@@ -1,42 +1,128 @@
-#root {
-  max-width: 1280px;
+html, body { width: 100vw; overflow-x: hidden; margin: 0; padding: 0;}
+*, *:before, *:after { box-sizing: border-box !important; }
+body, .gpt-bg {
+  background: #222;
+  min-height: 100vh;
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+/* Fixed header and input always visible */
+.fixed-header {
+  position: fixed;
+  top: 0; left: 0; width: 100vw;
+  background: #232323f4;
+  font-weight: 800;
+  font-size: 1.12rem;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: start;
+  z-index: 100;
+  border-bottom: 1px solid #232323;
+  padding-left: 2vw;
+}
+.gpt-header-name {
+  color: #fff;
+  font-size: 1.22rem;
+  letter-spacing: .03em;
+}
+/* Main chat above input and under header */
+.chat-scroll {
+  position: absolute;
+  top: 52px; bottom: 64px;
+  left: 0; right: 0;
+  width: 100vw;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* wider chat window! */
+  background: transparent;
+}
+.gpt-chat-bubbles {
+  width: 100%;
+  max-width: 960px;  /* wider for laptop */
   margin: 0 auto;
-  padding: 2rem;
-  text-align: center;
+  padding: 1.1rem 2vw 1.23rem 2vw;
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
 }
 
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: filter 300ms;
+.gpt-block { margin-bottom: .18rem; }
+.gpt-block-content {
+  background: #23272a;
+  color: #f1f1f1;
+  border-radius: 0.75rem;
+  font-size: 1.07rem;
+  padding: 1.09em 1.45em;
+  margin: 0;
+  box-shadow: 0 1px 3px #19191961;
+  max-width: 100%;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  transition: box-shadow .16s;
+  line-height: 1.55;
 }
-.logo:hover {
-  filter: drop-shadow(0 0 2em #646cffaa);
+.gpt-block.user .gpt-block-content {
+  background: #292929;
+  color: #fff;
 }
-.logo.react:hover {
-  filter: drop-shadow(0 0 2em #61dafbaa);
-}
-
-@keyframes logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  a:nth-of-type(2) .logo {
-    animation: logo-spin infinite 20s linear;
-  }
+.gpt-label { color: #aaa; font-style: italic; font-size: .96em; font-weight: 400; }
+.gpt-block a { color: #53a9ff; text-decoration: underline; word-break: break-all;}
+.gpt-block a:hover { color: #fff; text-decoration: none; background: #111; }
+.gpt-empty-chat {
+  color: #aaa; font-size: 1.18rem; text-align: center; margin-top: 2.1em; opacity: 0.95;
 }
 
-.card {
-  padding: 2em;
+/* Fixed & compact input at bottom */
+.gpt-chat-input-row.fixed-input {
+  position: fixed;
+  bottom: 0; left: 0; width: 100vw;
+  z-index: 200;
+  background: #232323f6;
+  border-top: 1px solid #232323;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 64px;
+  padding: 0;
 }
+.gpt-chat-input {
+  flex: 1; background: #22272b; color: #fff;
+  border: none; border-radius: 999px;
+  padding: .87rem 1.22rem; font-size: 1.14rem;
+  outline: none;
+  margin: 0.3rem 0.6rem;
+  max-width: 700px;
+  min-width: 0;
+  box-shadow: 0 1px 5px #222b;
+  transition: box-shadow .17s, border .17s, background .17s;
+}
+.gpt-chat-input:focus { border: 1px solid #aaa; background: #28282b; }
+.gpt-chat-send {
+  background: #ececec; color: #232323;
+  border: none; border-radius: 999px; font-weight: 700;
+  font-size: 1.18rem; width: 2.5rem; height: 2.5rem;
+  margin: 0.3rem 0.8rem 0.3rem 0;
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+  transition: background 0.12s;
+}
+.gpt-chat-send:hover:not([disabled]) { background: #fff; }
+.gpt-spinner {
+  display: inline-block; width: 18px; height: 18px;
+  border: 2.5px solid #aaa; border-top: 2.5px solid #fff;
+  border-radius: 50%; animation: gptSpin .8s linear infinite;
+}
+@keyframes gptSpin { 100% { transform: rotate(360deg); } }
 
-.read-the-docs {
-  color: #888;
+@media (max-width: 1200px) {
+  .gpt-chat-bubbles { max-width: 97vw; }
+  .gpt-chat-input { max-width: 96vw; }
+}
+@media (max-width: 700px) {
+  .gpt-chat-bubbles { max-width: 100vw; }
+  .gpt-chat-input { max-width: 99vw; }
+  .fixed-header, .gpt-chat-input-row.fixed-input { padding-left: 1vw; padding-right: 1vw; }
 }

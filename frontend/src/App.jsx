@@ -1,284 +1,133 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
+import "./App.css";
 
 export default function App() {
-  const [topic, setTopic] = useState("");
+  const [input, setInput] = useState("");
   const [maxPapers, setMaxPapers] = useState(3);
-  const [report, setReport] = useState(null);
+  const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
+
+  // Refs for scrolling logic
+  const chatScrollRef = useRef(null);
+  const chatEndRef = useRef(null);
+  // Track if user just sent a prompt
+  const [shouldScroll, setShouldScroll] = useState(false);
+
+  // Scroll to bottom only on NEW user messages
+  useEffect(() => {
+    if (shouldScroll && chatEndRef.current) {
+      chatEndRef.current.scrollIntoView({ behavior: "smooth" });
+      setShouldScroll(false);
+    }
+  }, [messages, shouldScroll]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-
+    if (!input.trim()) return;
+    setMessages(prev => [
+      ...prev,
+      { role: "user", content: input.trim() }
+    ]);
+    setInput("");
+    setShouldScroll(true); // Next message scrolls to bottom
     setLoading(true);
-    setReport(null);
 
     try {
       const res = await fetch("http://localhost:8000/api/analyze-topic", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          topic,
-          max_papers: maxPapers,
-        }),
+        body: JSON.stringify({ topic: input.trim(), max_papers: maxPapers }),
       });
+      if (!res.ok) throw new Error("Backend error: " + res.status);
+      const report = await res.json();
 
-      if (!res.ok) {
-        throw new Error("Failed to fetch report");
-      }
+      const botMessages = [];
+      if (report.overview) botMessages.push({ role: "bot", content: report.overview });
+      if (Array.isArray(report.papers) && report.papers.length)
+        botMessages.push({
+          role: "bot",
+          content:
+            "<b>Papers:</b><br>" +
+            report.papers.map(
+              (p, i) =>
+                `${i + 1}. <a href="${p.url}" target="_blank">${p.title}</a>` +
+                (p.authors.length ? `<br/><span class='gpt-label'>Authors:</span> ${p.authors.join(", ")}` : "") +
+                `<br/><span class='gpt-label'>Published:</span> ${new Date(p.published).toLocaleDateString()}` +
+                `<br/>${p.summary}<br/>`
+            ).join("")
+        });
+      else if ("papers" in report)
+        botMessages.push({ role: "bot", content: "No papers found." });
+      if (Array.isArray(report.calculations) && report.calculations.length)
+        botMessages.push({
+          role: "bot",
+          content:
+            "<b>Calculations:</b><br>" +
+            report.calculations.map(
+              (calc) =>
+                `<b>${calc.label}:</b> ${calc.value}<br/><span class='gpt-label'>${calc.details}</span>`
+            ).join("<br/>")
+        });
+      if (report.future_work)
+        botMessages.push({ role: "bot", content: "<b>Next steps:</b><br>" + report.future_work });
 
-      const data = await res.json();
-      setReport(data);
+      setMessages(prev => [...prev, ...botMessages]);
     } catch (err) {
-      console.error(err);
-      alert("Error connecting to backend. Check console/logs.");
+      setMessages(prev => [
+        ...prev,
+        {
+          role: "bot",
+          content:
+            "<span style='color:#e45'>Error: Could not fetch research papers. Backend may be down or endpoint unreachable.</span>",
+        },
+      ]);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        padding: "2rem",
-        background: "#020617",
-        color: "#e5e7eb",
-      }}
-    >
-      <div style={{ maxWidth: "900px", margin: "0 auto" }}>
-        <h1 style={{ fontSize: "2rem", fontWeight: 600, marginBottom: "0.5rem" }}>
-          AstroResearch Agent
-        </h1>
-        <p style={{ fontSize: "0.9rem", color: "#cbd5f5", marginBottom: "1.5rem" }}>
-          Enter an astrophysics topic. This version calls the local FastAPI backend.
-        </p>
+    <div className="gpt-bg">
+      {/* Fixed HEADER */}
+      <header className="gpt-header fixed-header">
+        <div className="gpt-header-name">AstroQuery</div>
+      </header>
 
-        {/* Form */}
-        <form
-          onSubmit={handleSubmit}
-          style={{
-            background: "#020617",
-            border: "1px solid #1f2937",
-            borderRadius: "0.75rem",
-            padding: "1rem",
-            marginBottom: "2rem",
-          }}
-        >
-          <div style={{ marginBottom: "1rem" }}>
-            <label
-              htmlFor="topic"
-              style={{
-                display: "block",
-                fontSize: "0.85rem",
-                marginBottom: "0.25rem",
-              }}
-            >
-              Topic
-            </label>
-            <input
-              id="topic"
-              type="text"
-              value={topic}
-              onChange={(e) => setTopic(e.target.value)}
-              placeholder="e.g. black hole accretion"
-              required
-              style={{
-                width: "100%",
-                padding: "0.5rem 0.75rem",
-                borderRadius: "0.5rem",
-                border: "1px solid #4b5563",
-                background: "#020617",
-                color: "#e5e7eb",
-              }}
-            />
-          </div>
+      {/* Chat scroll region */}
+      <main className="chat-scroll" ref={chatScrollRef}>
+        <section className="gpt-chat-bubbles">
+          {messages.length === 0 && !loading && (
+            <div className="gpt-empty-chat">How can I help, Sujat?</div>
+          )}
+          {messages.map((msg, idx) => (
+            <div key={idx} className={`gpt-block ${msg.role}`}>
+              <div
+                className="gpt-block-content"
+                dangerouslySetInnerHTML={{ __html: msg.content.replace(/\n/g, "<br/>") }}
+              />
+            </div>
+          ))}
+          {loading && (
+            <div className="gpt-block bot">
+              <span className="gpt-spinner" />
+            </div>
+          )}
+          <div ref={chatEndRef} />
+        </section>
+      </main>
 
-          <div style={{ marginBottom: "1rem" }}>
-            <label
-              htmlFor="maxPapers"
-              style={{
-                display: "block",
-                fontSize: "0.85rem",
-                marginBottom: "0.25rem",
-              }}
-            >
-              Max papers
-            </label>
-            <input
-              id="maxPapers"
-              type="number"
-              min={1}
-              max={10}
-              value={maxPapers}
-              onChange={(e) => setMaxPapers(Number(e.target.value))}
-              style={{
-                width: "80px",
-                padding: "0.4rem 0.5rem",
-                borderRadius: "0.5rem",
-                border: "1px solid #4b5563",
-                background: "#020617",
-                color: "#e5e7eb",
-              }}
-            />
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading}
-            style={{
-              padding: "0.5rem 1rem",
-              borderRadius: "0.5rem",
-              border: "none",
-              background: loading ? "#4b5563" : "#6366f1",
-              color: "white",
-              fontSize: "0.9rem",
-              fontWeight: 500,
-              cursor: loading ? "default" : "pointer",
-            }}
-          >
-            {loading ? "Generating..." : "Generate Report"}
-          </button>
-        </form>
-
-        {/* Report */}
-        {report && (
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: "1.25rem",
-              marginBottom: "3rem",
-            }}
-          >
-            <section
-              style={{
-                border: "1px solid #1f2937",
-                borderRadius: "0.75rem",
-                padding: "1rem",
-              }}
-            >
-              <h2
-                style={{
-                  fontSize: "1.2rem",
-                  fontWeight: 600,
-                  marginBottom: "0.5rem",
-                }}
-              >
-                Overview
-              </h2>
-              <p style={{ fontSize: "0.9rem" }}>{report.overview}</p>
-            </section>
-
-            <section
-              style={{
-                border: "1px solid #1f2937",
-                borderRadius: "0.75rem",
-                padding: "1rem",
-              }}
-            >
-              <h2
-                style={{
-                  fontSize: "1.2rem",
-                  fontWeight: 600,
-                  marginBottom: "0.75rem",
-                }}
-              >
-                Papers
-              </h2>
-              {report.papers.map((paper) => (
-                <div
-                  key={paper.title}
-                  style={{
-                    marginBottom: "0.9rem",
-                    paddingBottom: "0.75rem",
-                    borderBottom: "1px solid #1f2937",
-                  }}
-                >
-                  <a
-                    href={paper.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    style={{
-                      color: "#6366f1",
-                      fontWeight: 500,
-                      textDecoration: "none",
-                    }}
-                  >
-                    {paper.title}
-                  </a>
-                  <p
-                    style={{
-                      fontSize: "0.75rem",
-                      color: "#9ca3af",
-                      marginTop: "0.25rem",
-                    }}
-                  >
-                    {paper.authors.join(", ")} ·{" "}
-                    {new Date(paper.published).toLocaleDateString()}
-                  </p>
-                  <p style={{ fontSize: "0.9rem", marginTop: "0.5rem" }}>
-                    {paper.summary}
-                  </p>
-                </div>
-              ))}
-            </section>
-
-            <section
-              style={{
-                border: "1px solid #1f2937",
-                borderRadius: "0.75rem",
-                padding: "1rem",
-              }}
-            >
-              <h2
-                style={{
-                  fontSize: "1.2rem",
-                  fontWeight: 600,
-                  marginBottom: "0.75rem",
-                }}
-              >
-                Calculations
-              </h2>
-              {report.calculations.map((calc) => (
-                <div key={calc.label} style={{ marginBottom: "0.6rem" }}>
-                  <p style={{ fontSize: "0.9rem", fontWeight: 500 }}>
-                    {calc.label}:{" "}
-                    <span style={{ color: "#a5b4fc" }}>{calc.value}</span>
-                  </p>
-                  <p
-                    style={{
-                      fontSize: "0.8rem",
-                      color: "#d1d5db",
-                      marginTop: "0.25rem",
-                    }}
-                  >
-                    {calc.details}
-                  </p>
-                </div>
-              ))}
-            </section>
-
-            <section
-              style={{
-                border: "1px solid #1f2937",
-                borderRadius: "0.75rem",
-                padding: "1rem",
-              }}
-            >
-              <h2
-                style={{
-                  fontSize: "1.2rem",
-                  fontWeight: 600,
-                  marginBottom: "0.5rem",
-                }}
-              >
-                Future Work
-              </h2>
-              <p style={{ fontSize: "0.9rem" }}>{report.future_work}</p>
-            </section>
-          </div>
-        )}
-      </div>
+      {/* Fixed bottom INPUT */}
+      <form className="gpt-chat-input-row fixed-input" onSubmit={handleSubmit} autoComplete="off">
+        <input
+          className="gpt-chat-input"
+          type="text"
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          placeholder="Ask anything"
+          required
+        />
+        <button className="gpt-chat-send" type="submit" disabled={loading} aria-label="send">→</button>
+      </form>
     </div>
   );
 }
