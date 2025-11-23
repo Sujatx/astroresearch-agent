@@ -1,14 +1,22 @@
-﻿from fastapi import FastAPI
+﻿import os
+from datetime import datetime
+from typing import List
+
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List
-from datetime import datetime
 
 from app.services.arxiv_client import search_arxiv
 from app.services.astro_math import (
     schwarzschild_radius_km,
     kepler_orbital_period_days,
 )
+
+from dotenv import load_dotenv
+import google.generativeai as genai
+
+# Load local .env (for GEMINI_API_KEY when running locally)
+load_dotenv()
 
 app = FastAPI()
 
@@ -52,6 +60,71 @@ class AnalyzeTopicResponse(BaseModel):
     future_work: str
 
 
+# --------- LLM SUMMARIZATION (GEMINI) ---------
+
+
+def summarize_with_gemini(
+    topic: str,
+    papers: List[PaperSummary],
+    calculations: List[CalculationResult],
+) -> str:
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        # No key found -> don't break, just skip LLM
+        return ""
+
+    try:
+        genai.configure(api_key=api_key)
+
+        paper_text = "\n\n".join(
+            f"Title: {p.title}\nAuthors: {', '.join(p.authors)}\nAbstract: {p.summary}"
+            for p in papers
+        ) or "No papers were retrieved for this topic."
+
+        calc_text = "\n".join(
+            f"{c.label}: {c.value} — {c.details}" for c in calculations
+        ) or "No explicit calculations were performed."
+
+        prompt = f"""
+You are an astrophysics research assistant.
+
+Summarize the following topic using the papers and calculations below.
+
+Topic:
+{topic}
+
+Relevant Papers:
+{paper_text}
+
+Astrophysical Calculations:
+{calc_text}
+
+Write a coherent, research-style summary that:
+- Explains the main ideas of the topic
+- Synthesizes what the papers show collectively
+- Mentions any differences in approaches if visible
+- Connects the calculations to the physical picture
+- Suggests a few directions for future research
+
+Use clear, technical but readable language.
+Aim for about 200–300 words.
+"""
+
+        model = genai.GenerativeModel("gemini-2.5-flash")
+        response = model.generate_content(prompt)
+        text = getattr(response, "text", None)
+
+        if not text:
+            return ""
+
+        return text.strip()
+
+    except Exception as e:
+        # Don't kill the API if Gemini fails
+        print("Gemini summarization error:", e)
+        return ""
+
+
 # --------- ROUTES ---------
 
 
@@ -89,17 +162,10 @@ def analyze_topic(payload: AnalyzeTopicRequest):
             )
         )
 
-    # 2) Overview text
-    overview = (
-        f"This report is based on {len(papers)} arXiv result(s) for the topic "
-        f"'{payload.topic}'. The summaries below are extracted directly from "
-        "the arXiv abstracts."
-    )
-
     topic_lower = payload.topic.lower()
     calculations: List[CalculationResult] = []
 
-    # 3) Topic-based calculations
+    # 2) Topic-based calculations
     if "black hole" in topic_lower:
         # Example: stellar-mass + supermassive black hole
         mass_stellar = 10.0          # solar masses
@@ -162,6 +228,18 @@ def analyze_topic(payload: AnalyzeTopicRequest):
                     "Used as a generic astrophysical scale for this topic."
                 ),
             )
+        )
+
+    # 3) LLM-based overview (fallback to old logic if LLM fails)
+    summary = summarize_with_gemini(payload.topic, papers, calculations)
+
+    if summary:
+        overview = summary
+    else:
+        overview = (
+            f"This report is based on {len(papers)} arXiv result(s) for the topic "
+            f"'{payload.topic}'. The summaries below are extracted directly from "
+            "the arXiv abstracts."
         )
 
     future_work = (
