@@ -5,20 +5,17 @@ from typing import List
 from datetime import datetime
 
 from app.services.arxiv_client import search_arxiv
-
 from app.services.astro_math import (
     schwarzschild_radius_km,
     kepler_orbital_period_days,
 )
 
-
-
 app = FastAPI()
 
-# CORS for local frontend
+# CORS for frontend (dev + prod)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # for dev; restrict later
+    allow_origins=["*"],  # wide open for now; can restrict later
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -92,7 +89,7 @@ def analyze_topic(payload: AnalyzeTopicRequest):
             )
         )
 
-    # 2) Simple overview + dummy calculations for now
+    # 2) Overview text
     overview = (
         f"This report is based on {len(papers)} arXiv result(s) for the topic "
         f"'{payload.topic}'. The summaries below are extracted directly from "
@@ -100,9 +97,9 @@ def analyze_topic(payload: AnalyzeTopicRequest):
     )
 
     topic_lower = payload.topic.lower()
-
     calculations: List[CalculationResult] = []
 
+    # 3) Topic-based calculations
     if "black hole" in topic_lower:
         # Example: stellar-mass + supermassive black hole
         mass_stellar = 10.0          # solar masses
@@ -166,7 +163,6 @@ def analyze_topic(payload: AnalyzeTopicRequest):
                 ),
             )
         )
-
 
     future_work = (
         "In future iterations, this agent will include more detailed reasoning, "
