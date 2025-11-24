@@ -5,12 +5,36 @@ export default function App() {
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [isUserScrolling, setIsUserScrolling] = useState(false);
 
+  const chatRef = useRef(null);
   const chatEndRef = useRef(null);
+  const scrollTimeoutRef = useRef(null);
 
+  // Only auto-scroll if user isn't manually scrolling
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    if (!isUserScrolling && chatEndRef.current) {
+      chatEndRef.current.scrollIntoView({ behavior: "smooth", block: "end" });
+    }
+  }, [messages, isUserScrolling]);
+
+  // Detect user scrolling
+  const handleScroll = () => {
+    if (scrollTimeoutRef.current) {
+      clearTimeout(scrollTimeoutRef.current);
+    }
+
+    setIsUserScrolling(true);
+
+    scrollTimeoutRef.current = setTimeout(() => {
+      const element = chatRef.current;
+      if (element) {
+        const isAtBottom = 
+          element.scrollHeight - element.scrollTop - element.clientHeight < 100;
+        setIsUserScrolling(!isAtBottom);
+      }
+    }, 150);
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -18,6 +42,7 @@ export default function App() {
 
     setMessages((prev) => [...prev, { role: "user", content: input.trim() }]);
     setInput("");
+    setIsUserScrolling(false); // Allow scroll for new messages
     setLoading(true);
 
     const API_URL = import.meta.env.VITE_API_URL;
@@ -38,12 +63,12 @@ export default function App() {
       if (Array.isArray(report.papers) && report.papers.length) {
         botMessages.push({
           role: "bot",
-          content: "<b>Papers:</b><br>" + report.papers.map((p, i) =>
-            `${i + 1}. <a href="${p.url}" target="_blank">${p.title}</a>` +
+          content: "<div class='papers'><b>Papers:</b><br>" + report.papers.map((p, i) =>
+            `<div class='paper-item'>${i + 1}. <a href="${p.url}" target="_blank">${p.title}</a>` +
             (p.authors.length ? `<br/><span class='meta'>Authors:</span> ${p.authors.join(", ")}` : "") +
             `<br/><span class='meta'>Published:</span> ${new Date(p.published).toLocaleDateString()}` +
-            `<br/>${p.summary}<br/>`
-          ).join(""),
+            `<br/>${p.summary}</div>`
+          ).join("") + "</div>",
         });
       }
 
@@ -72,7 +97,7 @@ export default function App() {
         <span className="title">AstroQuery</span>
       </header>
 
-      <main className="chat">
+      <main className="chat" ref={chatRef} onScroll={handleScroll}>
         <div className="container">
           {messages.length === 0 && !loading && (
             <div className="empty">
@@ -83,7 +108,7 @@ export default function App() {
 
           {messages.map((msg, idx) => (
             <div key={idx} className={`msg ${msg.role}`}>
-              <div className="bubble" dangerouslySetInnerHTML={{ __html: msg.content.replace(/\n/g, "<br/>") }} />
+              <div className="bubble" dangerouslySetInnerHTML={{ __html: msg.content }} />
             </div>
           ))}
 
