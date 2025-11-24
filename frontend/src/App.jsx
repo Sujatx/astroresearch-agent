@@ -6,16 +6,11 @@ export default function App() {
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  const chatScrollRef = useRef(null);
   const chatEndRef = useRef(null);
-  const [shouldScroll, setShouldScroll] = useState(false);
 
   useEffect(() => {
-    if (shouldScroll && chatEndRef.current) {
-      chatEndRef.current.scrollIntoView({ behavior: "smooth" });
-      setShouldScroll(false);
-    }
-  }, [messages, shouldScroll]);
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -23,7 +18,6 @@ export default function App() {
 
     setMessages((prev) => [...prev, { role: "user", content: input.trim() }]);
     setInput("");
-    setShouldScroll(true);
     setLoading(true);
 
     const API_URL = import.meta.env.VITE_API_URL;
@@ -32,73 +26,41 @@ export default function App() {
       const res = await fetch(`${API_URL}/api/analyze-topic`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          topic: input.trim(),
-          max_papers: 3,
-        }),
+        body: JSON.stringify({ topic: input.trim(), max_papers: 3 }),
       });
 
-      if (!res.ok) throw new Error("Backend error: " + res.status);
+      if (!res.ok) throw new Error("Backend error");
       const report = await res.json();
-
       const botMessages = [];
 
-      if (report.overview)
-        botMessages.push({ role: "bot", content: report.overview });
+      if (report.overview) botMessages.push({ role: "bot", content: report.overview });
 
       if (Array.isArray(report.papers) && report.papers.length) {
         botMessages.push({
           role: "bot",
-          content:
-            "<b>Papers:</b><br>" +
-            report.papers
-              .map(
-                (p, i) =>
-                  `${i + 1}. <a href="${p.url}" target="_blank">${p.title}</a>` +
-                  (p.authors.length
-                    ? `<br/><span class='meta'>Authors:</span> ${p.authors.join(", ")}`
-                    : "") +
-                  `<br/><span class='meta'>Published:</span> ${new Date(
-                    p.published
-                  ).toLocaleDateString()}` +
-                  `<br/>${p.summary}<br/>`
-              )
-              .join(""),
+          content: "<b>Papers:</b><br>" + report.papers.map((p, i) =>
+            `${i + 1}. <a href="${p.url}" target="_blank">${p.title}</a>` +
+            (p.authors.length ? `<br/><span class='meta'>Authors:</span> ${p.authors.join(", ")}` : "") +
+            `<br/><span class='meta'>Published:</span> ${new Date(p.published).toLocaleDateString()}` +
+            `<br/>${p.summary}<br/>`
+          ).join(""),
         });
-      } else {
-        botMessages.push({ role: "bot", content: "No papers found." });
       }
 
       if (Array.isArray(report.calculations) && report.calculations.length) {
         botMessages.push({
           role: "bot",
-          content:
-            "<b>Calculations:</b><br>" +
-            report.calculations
-              .map(
-                (calc) =>
-                  `<b>${calc.label}:</b> ${calc.value}<br/><span class='meta'>${calc.details}</span>`
-              )
-              .join("<br/>"),
+          content: "<b>Calculations:</b><br>" + report.calculations.map((calc) =>
+            `<b>${calc.label}:</b> ${calc.value}<br/><span class='meta'>${calc.details}</span>`
+          ).join("<br/>"),
         });
       }
 
-      if (report.future_work)
-        botMessages.push({
-          role: "bot",
-          content: "<b>Next steps:</b><br>" + report.future_work,
-        });
+      if (report.future_work) botMessages.push({ role: "bot", content: "<b>Next steps:</b><br>" + report.future_work });
 
       setMessages((prev) => [...prev, ...botMessages]);
-    } catch (err) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "bot",
-          content:
-            "<span style='color:#ef4444'>Error: Could not fetch research papers. Backend may be down or endpoint unreachable.</span>",
-        },
-      ]);
+    } catch {
+      setMessages((prev) => [...prev, { role: "bot", content: "<span style='color:#ef4444'>Error: Could not fetch research papers.</span>" }]);
     } finally {
       setLoading(false);
     }
@@ -106,13 +68,11 @@ export default function App() {
 
   return (
     <div className="app">
-      {/* Compact Header */}
       <header className="header">
         <span className="title">AstroQuery</span>
       </header>
 
-      {/* Chat */}
-      <main className="chat" ref={chatScrollRef}>
+      <main className="chat">
         <div className="container">
           {messages.length === 0 && !loading && (
             <div className="empty">
@@ -123,21 +83,14 @@ export default function App() {
 
           {messages.map((msg, idx) => (
             <div key={idx} className={`msg ${msg.role}`}>
-              <div
-                className="content"
-                dangerouslySetInnerHTML={{
-                  __html: msg.content.replace(/\n/g, "<br/>"),
-                }}
-              />
+              <div className="bubble" dangerouslySetInnerHTML={{ __html: msg.content.replace(/\n/g, "<br/>") }} />
             </div>
           ))}
 
           {loading && (
             <div className="msg bot">
-              <div className="content loading">
-                <span></span>
-                <span></span>
-                <span></span>
+              <div className="bubble loading">
+                <span></span><span></span><span></span>
               </div>
             </div>
           )}
@@ -146,7 +99,6 @@ export default function App() {
         </div>
       </main>
 
-      {/* Input */}
       <form className="input-bar" onSubmit={handleSubmit}>
         <input
           className="input"
@@ -156,11 +108,7 @@ export default function App() {
           placeholder="Ask anything..."
           disabled={loading}
         />
-        <button
-          className="send"
-          type="submit"
-          disabled={loading || !input.trim()}
-        >
+        <button className="send" type="submit" disabled={loading || !input.trim()}>
           →
         </button>
       </form>
