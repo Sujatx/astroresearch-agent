@@ -1,5 +1,4 @@
-﻿import os
-from datetime import datetime
+﻿from datetime import datetime
 from typing import List
 
 from fastapi import FastAPI
@@ -11,12 +10,8 @@ from app.services.astro_math import (
     schwarzschild_radius_km,
     kepler_orbital_period_days,
 )
+from app.services.gemini_client import generate_report
 
-from dotenv import load_dotenv
-import google.generativeai as genai
-
-# Load local .env (for GEMINI_API_KEY when running locally)
-load_dotenv()
 
 app = FastAPI()
 
@@ -35,7 +30,7 @@ app.add_middleware(
 
 class AnalyzeTopicRequest(BaseModel):
     topic: str
-    max_papers: int = 3
+    max_papers: int = 3  # kept for compatibility, but we auto-decide internally
 
 
 class PaperSummary(BaseModel):
@@ -60,69 +55,30 @@ class AnalyzeTopicResponse(BaseModel):
     future_work: str
 
 
-# --------- LLM SUMMARIZATION (GEMINI) ---------
+# --------- HELPERS ---------
 
 
-def summarize_with_gemini(
-    topic: str,
-    papers: List[PaperSummary],
-    calculations: List[CalculationResult],
-) -> str:
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        # No key found -> don't break, just skip LLM
-        return ""
+def decide_max_papers(topic: str) -> int:
+    """
+    Automatically decide how many arXiv papers to fetch
+    based on how broad/specific the topic looks.
+    """
+    t = topic.lower()
 
-    try:
-        genai.configure(api_key=api_key)
+    # Extremely broad topics
+    if any(x in t for x in ["universe", "cosmology", "astrophysics"]):
+        return 8
 
-        paper_text = "\n\n".join(
-            f"Title: {p.title}\nAuthors: {', '.join(p.authors)}\nAbstract: {p.summary}"
-            for p in papers
-        ) or "No papers were retrieved for this topic."
+    # Broad cosmology / fundamental physics topics
+    if any(x in t for x in ["dark matter", "dark energy", "inflation", "structure formation"]):
+        return 6
 
-        calc_text = "\n".join(
-            f"{c.label}: {c.value} — {c.details}" for c in calculations
-        ) or "No explicit calculations were performed."
+    # Medium complexity astrophysics topics
+    if any(x in t for x in ["galaxy", "exoplanet", "planet", "accretion", "supernova"]):
+        return 5
 
-        prompt = f"""
-You are an astrophysics research assistant.
-
-Summarize the following topic using the papers and calculations below.
-
-Topic:
-{topic}
-
-Relevant Papers:
-{paper_text}
-
-Astrophysical Calculations:
-{calc_text}
-
-Write a coherent, research-style summary that:
-- Explains the main ideas of the topic
-- Synthesizes what the papers show collectively
-- Mentions any differences in approaches if visible
-- Connects the calculations to the physical picture
-- Suggests a few directions for future research
-
-Use clear, technical but readable language.
-Aim for about 200–300 words.
-"""
-
-        model = genai.GenerativeModel("gemini-2.5-flash")
-        response = model.generate_content(prompt)
-        text = getattr(response, "text", None)
-
-        if not text:
-            return ""
-
-        return text.strip()
-
-    except Exception as e:
-        # Don't kill the API if Gemini fails
-        print("Gemini summarization error:", e)
-        return ""
+    # Narrow / specific topics
+    return 3
 
 
 # --------- ROUTES ---------
@@ -135,8 +91,11 @@ def health():
 
 @app.post("/api/analyze-topic", response_model=AnalyzeTopicResponse)
 def analyze_topic(payload: AnalyzeTopicRequest):
-    # 1) Fetch papers from arXiv
-    entries = search_arxiv(payload.topic, payload.max_papers)
+    # 1) Decide how many papers to fetch based on topic
+    max_p = decide_max_papers(payload.topic)
+
+    # 2) Fetch papers from arXiv
+    entries = search_arxiv(payload.topic, max_p)
 
     papers: List[PaperSummary] = []
 
@@ -165,9 +124,8 @@ def analyze_topic(payload: AnalyzeTopicRequest):
     topic_lower = payload.topic.lower()
     calculations: List[CalculationResult] = []
 
-    # 2) Topic-based calculations
+    # 3) Topic-based calculations ONLY where it makes sense
     if "black hole" in topic_lower:
-        # Example: stellar-mass + supermassive black hole
         mass_stellar = 10.0          # solar masses
         mass_supermassive = 4e6      # solar masses (like Sgr A*)
 
@@ -194,7 +152,6 @@ def analyze_topic(payload: AnalyzeTopicRequest):
         )
 
     elif "orbit" in topic_lower or "exoplanet" in topic_lower or "planet" in topic_lower:
-        # Example orbital periods at 1 AU and 5 AU around a 1 M☉ star
         p_1au_days = kepler_orbital_period_days(1.0, 1.0)
         p_5au_days = kepler_orbital_period_days(5.0, 1.0)
 
@@ -215,37 +172,30 @@ def analyze_topic(payload: AnalyzeTopicRequest):
         )
 
     else:
-        # Generic black hole calculation as a fallback
-        mass_generic = 10.0
-        rs_generic_km = schwarzschild_radius_km(mass_generic)
+        # dark matter, inflation, CMB, etc → no random BH calcs
+        calculations = []
 
-        calculations.append(
-            CalculationResult(
-                label="Schwarzschild radius (example)",
-                value=f"{rs_generic_km:,.2f} km",
-                details=(
-                    f"Event horizon radius for a {mass_generic} M☉ black hole. "
-                    "Used as a generic astrophysical scale for this topic."
-                ),
-            )
-        )
+    # 4) Call Gemini to generate overview + future_work
+    papers_for_llm = []
+    for p in papers:
+        d = p.model_dump()
+        d["published"] = p.published.isoformat()
+        papers_for_llm.append(d)
 
-    # 3) LLM-based overview (fallback to old logic if LLM fails)
-    summary = summarize_with_gemini(payload.topic, papers, calculations)
+    calcs_for_llm = [c.model_dump() for c in calculations]
 
-    if summary:
-        overview = summary
-    else:
-        overview = (
-            f"This report is based on {len(papers)} arXiv result(s) for the topic "
-            f"'{payload.topic}'. The summaries below are extracted directly from "
-            "the arXiv abstracts."
-        )
+    sections = generate_report(payload.topic, papers_for_llm, calcs_for_llm) or {}
 
-    future_work = (
-        "In future iterations, this agent will include more detailed reasoning, "
-        "topic clustering, citation graph analysis, and astrophysical calculations "
-        "tailored to the query."
+    overview = sections.get("overview") or (
+        f"This report is based on {len(papers)} arXiv result(s) for the topic "
+        f"'{payload.topic}'. The summaries below are extracted directly from "
+        "the arXiv abstracts."
+    )
+
+    future_work = sections.get("future_work") or (
+        "Future work may include deeper analysis of recent literature, "
+        "more detailed astrophysical modelling, and cross-correlation "
+        "with multi-messenger or multi-wavelength observations where relevant."
     )
 
     return AnalyzeTopicResponse(
