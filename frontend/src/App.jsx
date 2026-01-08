@@ -5,60 +5,61 @@ export default function App() {
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [isUserScrolling, setIsUserScrolling] = useState(false);
+  const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
 
   const chatRef = useRef(null);
   const chatEndRef = useRef(null);
-  const scrollTimeoutRef = useRef(null);
 
-  // Only auto-scroll if user isn't manually scrolling
+  const scrollToBottom = () => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
   useEffect(() => {
-    if (!isUserScrolling && chatEndRef.current) {
-      chatEndRef.current.scrollIntoView({ behavior: "smooth", block: "end" });
+    if (shouldAutoScroll && chatEndRef.current) {
+      const timer = setTimeout(() => {
+        chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      }, 100);
+      return () => clearTimeout(timer);
     }
-  }, [messages, isUserScrolling]);
+  }, [messages, shouldAutoScroll]);
 
-  // Detect user scrolling
   const handleScroll = () => {
-    if (scrollTimeoutRef.current) {
-      clearTimeout(scrollTimeoutRef.current);
-    }
-
-    setIsUserScrolling(true);
-
-    scrollTimeoutRef.current = setTimeout(() => {
-      const element = chatRef.current;
-      if (element) {
-        const isAtBottom = 
-          element.scrollHeight - element.scrollTop - element.clientHeight < 100;
-        setIsUserScrolling(!isAtBottom);
-      }
-    }, 150);
+    const element = chatRef.current;
+    if (!element) return;
+    
+    const isAtBottom = 
+      element.scrollHeight - element.scrollTop - element.clientHeight < 50;
+    
+    setShouldAutoScroll(isAtBottom);
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!input.trim()) return;
 
-    setMessages((prev) => [...prev, { role: "user", content: input.trim() }]);
+    const userMessage = input.trim();
+    setMessages((prev) => [...prev, { role: "user", content: userMessage }]);
     setInput("");
-    setIsUserScrolling(false); // Allow scroll for new messages
-    setLoading(true);
+    setShouldAutoScroll(true);
+    scrollToBottom();
 
+    setLoading(true);
     const API_URL = import.meta.env.VITE_API_URL;
 
     try {
       const res = await fetch(`${API_URL}/api/analyze-topic`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ topic: input.trim(), max_papers: 3 }),
+        body: JSON.stringify({ topic: userMessage, max_papers: 3 }),
       });
 
       if (!res.ok) throw new Error("Backend error");
       const report = await res.json();
       const botMessages = [];
 
-      if (report.overview) botMessages.push({ role: "bot", content: report.overview });
+      if (report.overview) {
+        botMessages.push({ role: "bot", content: report.overview });
+      }
 
       if (Array.isArray(report.papers) && report.papers.length) {
         botMessages.push({
@@ -81,11 +82,19 @@ export default function App() {
         });
       }
 
-      if (report.future_work) botMessages.push({ role: "bot", content: "<b>Next steps:</b><br>" + report.future_work });
+      if (report.future_work) {
+        botMessages.push({ role: "bot", content: "<b>Next steps:</b><br>" + report.future_work });
+      }
 
       setMessages((prev) => [...prev, ...botMessages]);
+      scrollToBottom();
+      
     } catch {
-      setMessages((prev) => [...prev, { role: "bot", content: "<span style='color:#ef4444'>Error: Could not fetch research papers.</span>" }]);
+      setMessages((prev) => [...prev, { 
+        role: "bot", 
+        content: "<span style='color:#ef4444'>Error: Could not fetch research papers.</span>" 
+      }]);
+      scrollToBottom();
     } finally {
       setLoading(false);
     }
